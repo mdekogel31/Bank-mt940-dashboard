@@ -1,0 +1,5 @@
+pandas
+mt940
+plotly
+json
+os
