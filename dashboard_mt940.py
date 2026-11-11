@@ -5,7 +5,7 @@ import plotly.express as px
 import json
 import os
 
-#streamlit run abnamro_mt3.py
+#streamlit run dashboard_mt940v2.py
 
 st.set_page_config(page_title="Bank Dashboard", layout="wide")
 
@@ -17,21 +17,62 @@ BESTAND_NAAM = "regels.json"
 STANDAARD_REGELS = {"Energie": ["zonneplan"], "Inkomsten": ["Pensioen"]}
 
 # --- 1. FUNCTIES VOOR BESTANDSBEHEER (Met utf-8-sig) ---
+import json
+import streamlit as st
+
+BESTAND_NAAM = "regels.json"
+STANDAARD_REGELS = {"Energie": ["zonneplan"], "Inkomsten": ["Pensioen"]}
+
+# --- 1. FUNCTIES VOOR SESSIE- & BESTANDSBEHEER ---
 def laad_regels():
-    if not os.path.exists(BESTAND_NAAM):
-        with open(BESTAND_NAAM, "w", encoding="utf-8-sig") as f:
-            json.dump(STANDAARD_REGELS, f, indent=4, ensure_ascii=False)
-        return STANDAARD_REGELS
-    with open(BESTAND_NAAM, "r", encoding="utf-8-sig") as f:
-        return json.load(f)
+    # Initialiseer de regels in session_state als deze nog niet bestaan
+    if "regels" not in st.session_state:
+        st.session_state["regels"] = STANDAARD_REGELS.copy()
+    return st.session_state["regels"]
 
 def sla_regels_op(regels):
-    with open(BESTAND_NAAM, "w", encoding="utf-8-sig") as f:
-        json.dump(regels, f, indent=4, ensure_ascii=False)
+    # Werk de regels bij in het geheugen en herlaad de pagina
+    st.session_state["regels"] = regels
     st.rerun()
 
-# 2A. INITIALISATIE ---
+def toon_sidebar_bestandsbeheer():
+    st.sidebar.header("Up- en Download")
+    
+    # UPLOADEN: Lees een geüpload JSON-bestand in
+    geupload_bestand = st.sidebar.file_uploader(
+        "Upload regels.json", 
+        type=["json"],
+        key="regels_uploader"
+    )
+    
+    if geupload_bestand is not None:
+        # Voorkom een oneindige rerun-loop door de bestandsnaam/ID te checken
+        bestand_id = f"{geupload_bestand.name}_{geupload_bestand.size}"
+        if st.session_state.get("laatste_upload") != bestand_id:
+            try:
+                # utf-8-sig verwijdert automatisch een eventuele BOM
+                inhoud = geupload_bestand.getvalue().decode("utf-8-sig")
+                nieuwe_regels = json.loads(inhoud)
+                st.session_state["laatste_upload"] = bestand_id
+                sla_regels_op(nieuwe_regels)
+            except Exception as e:
+                st.sidebar.error(f"Fout bij lezen van bestand: {e}")
+
+    # DOWNLOADEN: Zet de huidige regels om naar een JSON-string met utf-8-sig
+    json_string = json.dumps(st.session_state["regels"], indent=4, ensure_ascii=False)
+    json_bytes = json_string.encode("utf-8-sig")
+    
+    st.sidebar.download_button(
+        label="Download regels.json",
+        data=json_bytes,
+        file_name=BESTAND_NAAM,
+        mime="application/json"
+    )
+
+# --- 2A. INITIALISATIE ---
 rules = laad_regels()
+toon_sidebar_bestandsbeheer()
+
 
 # 2B Sorteer zowel de categorieën (keys) als de binnenste lijsten (values)
 
@@ -43,10 +84,11 @@ rules = {
 
 # --- 3. INTERFACE IN DE SIDEBAR ---
 with st.sidebar:
-    st.title("⚙️ Categorieën Beheren ")
-    st.write("Wijzig zoektermen. Update dashboard automatisch.")
+    st.title("⚙️ Regels Beheren ")
+    st.write("Wijzig categorie en zoektermen.")
     
-    # --- DEEL A: REGEL TOEVOEGEN ---
+        
+#     DEEL A: REGEL TOEVOEGEN ---
     st.subheader("➕ Toevoegen")
     
     bestaande_cat = list(rules.keys())
@@ -189,7 +231,7 @@ if uploaded_file is not None:
             
         
         # 4B. Grafieken Sectie
-        st.subheader("Visualisaties Inkomsten & Kostenverdeling")
+        st.subheader("Visualisaties Inkomsten & Uitgaven")
         gcol1, gcol2 = st.columns(2)
         
         with gcol1:
@@ -203,14 +245,14 @@ if uploaded_file is not None:
                 df_uitgaven_pos, 
                 values="Bedrag_Positief", 
                 names="Categorie", 
-                title="Inkomsten per Categorie",
+                title="Inkomsten",
                 hole=0.4
             )
             
             fig_pie_cat.update_traces(
-                textinfo="percent+value",
-                texttemplate="%{label}<br>%{percent}<br>€%{value:.0f}",
-                hovertemplate="%{label}<br>€%{value:.2f}<br>%{percent}"
+                #textinfo="percent+value",
+                #texttemplate="%{label}<br>%{percent}<br>€%{value:.0f}",
+                hovertemplate="%{label}<br>€%{value:.0f}<br>%{percent}"
                 )
             
             # === DIT IS DE EXTRA REGEL ===
@@ -228,20 +270,22 @@ if uploaded_file is not None:
             df_uitgaven_pos["Bedrag_Positief"] = df_uitgaven_pos["Bedrag"].abs()
             
             fig_pie_cat = px.pie(
-                df_uitgaven_pos, 
+                df_uitgaven_pos,
                 values="Bedrag_Positief", 
                 names="Categorie", 
-                title="Uitgaven per Categorie",
+                title="Uitgaven",
                 hole=0.4
             )
+            values="Bedrag_Positief", 
+            names="Categorie", 
             
             # HIER: Dit zorgt ervoor dat er in en rondom de taartpunten een €-teken komt te staan.
             # :.2f geeft 2 decimalen achter de komma. 0f geeft hele euro's
             
             fig_pie_cat.update_traces(
-                textinfo="percent+value",
-                texttemplate="%{label}<br>%{percent}<br>€%{value:.0f}",
-                hovertemplate="%{label}<br>€%{value:.2f}<br>%{percent}"
+                #textinfo="percent+value",
+                #texttemplate="%{percent}<br>€%{value:.0f}",
+                hovertemplate="%{label}<br>€%{value:.0f}<br>%{percent}"
                 )
 
             # === DIT IS DE EXTRA REGEL ===
@@ -267,3 +311,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Er ging iets mis bij het parsen of categoriseren: {e}")
+
