@@ -1,5 +1,5 @@
 streamlit
 pandas
-mt940
+mt-940
 plotly
 
