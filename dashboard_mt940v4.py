@@ -3,10 +3,9 @@ import pandas as pd
 import mt940
 import plotly.express as px
 import json
-import os
+#import os
 
-#streamlit run dashboard_mt940v2.py
-#####
+#streamlit run dashboard_mt940v4.py
 
 st.set_page_config(page_title="Bank Dashboard", layout="wide")
 
@@ -15,14 +14,8 @@ st.write("welk `.sta` of `.txt` MT940 bestand wil je analyseren.")
 
 
 BESTAND_NAAM = "regels.json"
-STANDAARD_REGELS = {"Energie": ["zonneplan"], "Inkomsten": ["Pensioen"]}
+STANDAARD_REGELS = {"Energie": ["zonneplan"], "Pensioen": ["pensioen","AOW","svb"]}
 
-# --- 1. FUNCTIES VOOR BESTANDSBEHEER (Met utf-8-sig) ---
-import json
-import streamlit as st
-
-BESTAND_NAAM = "regels.json"
-STANDAARD_REGELS = {"Energie": ["zonneplan"], "Inkomsten": ["Pensioen"]}
 
 # --- 1. FUNCTIES VOOR SESSIE- & BESTANDSBEHEER ---
 def laad_regels():
@@ -39,7 +32,7 @@ def sla_regels_op(regels):
 def toon_sidebar_bestandsbeheer():
     st.sidebar.header("Up- en Download")
     
-    # UPLOADEN: Lees een geüpload JSON-bestand in
+    # UPLOADEN: Lees een JSON-bestand in
     geupload_bestand = st.sidebar.file_uploader(
         "Upload regels.json", 
         type=["json"],
@@ -102,7 +95,7 @@ with st.sidebar:
     else:
         doel_categorie = geselecteerde_cat
 
-    nieuwe_zoekterm = st.text_input("Typ zoekterm (bijv. 'pwn'):", key="sb_zoekterm").strip()
+    nieuwe_zoekterm = st.text_input("Typ zoekterm in (bijv. 'pwn'):", key="sb_zoekterm").strip()
 
     if st.button("Voeg toe", type="primary", key="sb_btn_voegtoe"):
         if not doel_categorie or not nieuwe_zoekterm:
@@ -126,7 +119,7 @@ with st.sidebar:
         st.info("Geen regels aanwezig.")
     else:
         for categorie, zoektermen in list(rules.items()):
-            # Uitklapmenu per categorie IN de sidebar
+            # Uitklapmenu per categorie van de sidebar
             with st.expander(f"📁 {categorie} ({len(zoektermen)})"):
                 for term in zoektermen:
                     col_term, col_btn = list(st.columns([3, 1]))
@@ -147,19 +140,11 @@ def categoriseer_transactie(row):
     
     # Maak tekst klein voor makkelijk zoeken
     omschrijving = str(row["Omschrijving"]).lower()
-    naam = str(row["Naam"]).lower()
-    code = str(row["Code"]).upper()
-    
-    # Check eerst op mislukte incasso's (zoals N426)
-    if "426" in code or "storno" in omschrijving or "stornering" in omschrijving:
-        return "Mislukte Incasso / Storno"
-        
-    # Categorieën en bijbehorende trefwoorden
-    
+
     
     for categorie, trefwoorden in rules.items():
         for trefwoord in trefwoorden:
-            if trefwoord in omschrijving or trefwoord in naam:
+            if trefwoord in omschrijving:
                 return categorie
                 
     if row["Bedrag"] > 0:
@@ -183,10 +168,10 @@ if uploaded_file is not None:
                 "Datum": pd.to_datetime(tx.data.get("date")),
                 "Bedrag": float(tx.data.get("amount").amount),
                 "Valuta": tx.data.get("amount").currency,
-                "Tegenrekening": tx.data.get("account_number"),
-                "Naam": tx.data.get("applicant_name"),
-                "Omschrijving": tx.data.get("transaction_details"),
-                "Code": tx.data.get("status") if tx.data.get("status") else ""
+                #"Tegenrekening": tx.data.get("accountpartAccount"),
+                #"Naam": tx.data.get("applicant_name"),
+                "Omschrijving": (tx.data.get("transaction_details") or "").replace("\n", "").replace("\r", "")
+                #"Code": tx.data.get("status") if tx.data.get("status") else ""
             })
         
         df = pd.DataFrame(data)
@@ -214,12 +199,7 @@ if uploaded_file is not None:
         
 
         
-        # --- ALERT VOOR MISLUKTE INCASSO'S (N426) ---
-        mislukte_incassos = df[df["Categorie"] == "Mislukte Incasso / Storno"]
-        if not mislukte_incassos.empty:
-            st.error(f"⚠️ Let op: Er zijn {len(mislukte_incassos)} mislukte incasso's of storno's gevonden!")
-            st.dataframe(mislukte_incassos[["Datum", "Naam", "Bedrag", "Omschrijving"]], use_container_width=True)
-        
+
         # 4A. Grafieken Sectie
         st.subheader("Visualisaties & Kostenverdeling")
        
@@ -228,7 +208,7 @@ if uploaded_file is not None:
         # Transactieverloop
         df_gesorteerd = df.sort_values("Datum")
         fig_tijd = px.line(df_gesorteerd, x="Datum", y="Bedrag", title="Transactieverloop door de tijd", markers=True)
-        st.plotly_chart(fig_tijd, use_container_width=True)
+        st.plotly_chart(fig_tijd, width="stretch")
             
         
         # 4B. Grafieken Sectie
@@ -237,8 +217,9 @@ if uploaded_file is not None:
         
         with gcol1:
             # Uitgaven per categorie (Inkomsten uitsluiten voor een zuiver beeld van de kosten)
-            df_uitgaven = df[df["Bedrag"] >0]
-            # Maak bedragen positief voor de cirkeldiagram
+            dfoverzicht = df.groupby('Categorie')['Bedrag'].sum().reset_index()
+            df_uitgaven = dfoverzicht[dfoverzicht["Bedrag"] >0]
+            # Maak bedragen positief voor het cirkeldiagram
             df_uitgaven_pos = df_uitgaven.copy()
             df_uitgaven_pos["Bedrag_Positief"] = df_uitgaven_pos["Bedrag"].abs()
             
@@ -261,12 +242,13 @@ if uploaded_file is not None:
             fig_pie_cat.update_layout(separators=",.")
             # =============================
             
-            st.plotly_chart(fig_pie_cat, use_container_width=True)
+            st.plotly_chart(fig_pie_cat, width="stretch")
             
         with gcol2:
             # Uitgaven per categorie (Inkomsten uitsluiten voor een zuiver beeld van de kosten)
-            df_uitgaven = df[df["Bedrag"] < 0]
-            # Maak bedragen positief voor de cirkeldiagram
+            dfoverzicht = df.groupby('Categorie')['Bedrag'].sum().reset_index()
+            df_uitgaven = dfoverzicht[dfoverzicht["Bedrag"] < 0]
+            # Maak bedragen positief voor het cirkeldiagram
             df_uitgaven_pos = df_uitgaven.copy()
             df_uitgaven_pos["Bedrag_Positief"] = df_uitgaven_pos["Bedrag"].abs()
             
@@ -281,7 +263,7 @@ if uploaded_file is not None:
             names="Categorie", 
             
             # HIER: Dit zorgt ervoor dat er in en rondom de taartpunten een €-teken komt te staan.
-            # :.2f geeft 2 decimalen achter de komma. 0f geeft hele euro's
+            # 2f geeft 2 decimalen achter de komma. 0f geeft hele euro's
             
             fig_pie_cat.update_traces(
                 #textinfo="percent+value",
@@ -294,7 +276,7 @@ if uploaded_file is not None:
             fig_pie_cat.update_layout(separators=",.")
             # =============================
             
-            st.plotly_chart(fig_pie_cat, use_container_width=True)
+            st.plotly_chart(fig_pie_cat, width="stretch")
             
         # 5. Transactie overzicht met Categorie Filter
         st.subheader("Alle Transacties")
@@ -308,8 +290,7 @@ if uploaded_file is not None:
         else:
             df_filtered = df
             
-        st.dataframe(df_filtered.sort_values(by="Datum", ascending=False), use_container_width=True)
+        st.dataframe(df_filtered.sort_values(by="Datum", ascending=False), width="stretch")
 
     except Exception as e:
         st.error(f"Er ging iets mis bij het parsen of categoriseren: {e}")
-
